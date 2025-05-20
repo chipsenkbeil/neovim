@@ -1,5 +1,217 @@
 local M = {}
 
+---Endpoint for the nvim image API.
+---
+---The API follows a simplistic, object-oriented design similar to `vim.system()`.
+---You specify an image, optionally eagerly loading its data, and then display it
+---within nvim. The information about where and how it is displayed is provided
+---through a single table.
+---
+---Each image, once shown, returns a placement, which represents the specific
+---instance of the image on screen. This is to support the separation of an
+---image and its data from the details and management of displaying it.
+---
+---The image API makes use of an internal `Promise<T>` class in order to support
+---both synchronous and asynchronous operation, meaning that images can be loaded,
+---shown, hidden, and updated asynchronously in order to be efficient, but also can
+---manually be waited upon at any stage.
+---
+---Examples in action
+---
+---```lua
+----- Supports loading PNG images into memory
+---local img = assert(vim.ui.img.load("/path/to/img.png"):wait())
+---
+----- Supports lazy-loading image for a provider to request later if needed
+---local img = vim.ui.img.new("/path/to/img.png")
+---
+----- Supports specifying an image and explicitly providing the data
+---local img = vim.ui.img.new({ bytes = "...", filename = "/path/to/img.png" })
+---```
+---
+---Placements are instances of images that have been "placed" onto the screen
+---in nvim. Whenever you show an image, a placement is created.
+---
+---```lua
+----- Once created, an image can be shown, returning an object
+----- deemed a "placement" that represents the instance
+---local placement = img:show():wait() -- Places in top-left of editor with default size
+---local placement = img:show({ pos = { x = 4, y = 8, unit = 'cell' }):wait()
+---local placement = img:show({ relative = 'cursor' }):wait()
+---```
+---
+---```lua
+---local placement = assert(img:hide():wait())
+---```
+---
+---```lua
+---local img = vim.ui.img.new("/path/to/img.png")
+---local placement = assert(img:show({ pos = { x = 1, y = 2, unit = 'cell' } }):wait())
+---
+----- Supports updating a displayed image with a new position
+---placement:update({ pos = { x = 5, y = 6, unit = 'cell' } }):wait()
+---
+----- Supports resizing a displayed image
+---placement:update({ size = { width = 10, height = 5, unit = "cell" } }):wait()
+---
+----- Of course, you can do all of this at the same time
+---placement:update({
+---    pos = { x = 5, y = 6, unit = 'cell' },
+---    size = { width = 10, height = 5, unit = 'cell' },
+---}):wait()
+---```
+---
+---Backed by promises
+---
+---Each Promise<T> supports chaining callbacks for individual
+---conditions of success or failure as well as combining the two
+---together.
+--
+---The on_* methods can be called multiple times and each
+---callback will be invoked when finished.
+---
+---You can also still choose to wait in a synchronous fashion
+---using `:wait()` which supports supplying a specific timeout
+---in milliseconds.
+---
+---```lua
+---img:show({ ... })
+---    :on_ok(function(placement)
+---        -- Use the placement once it has been confirmed as shown
+---    end)
+---    :on_fail(function(err)
+---        -- Do something with the error that occurred
+---    end)
+---    :on_done(function(err, placement)
+---        -- When either ok or fail happens
+---    end)
+---```
+---
+---Using magic on images
+---
+---Leveraging *ImageMagick* for the functionality, the image API supports
+---converting images into different formats as well as transforming them.
+---This is particularly needed for sixel, which would normally require
+---advanced image decoding to convert to an RGB format and then packaged in
+---sixel's format.
+---
+---By default, the path to the magick binary is specified with the *imgprg* option.
+---
+---```lua
+---vim.o.imgprg = 'magick'
+---```
+---
+---ImageMagick supports features like cropping and resizing,
+---which we expose through the `convert` method.
+---
+---```lua
+---img:convert({
+---    format = 'jpeg', -- Supports a variety of formats, including sixel!
+---    size = { width = 50, height = 30, unit = 'pixel' },
+---}):on_done(function(err, data)
+---    -- By default, this returns the data of the image
+---    -- instead of updating the instance or saving it
+---    -- to disk
+---    --
+---    -- Use img:convert({ out = '/path/to/img.jpeg' })
+---    -- to write to disk instead
+---end)
+---```
+---
+---Additionally, the image API provides a retrieval method called `identify`
+---(modeled after `magick identify`) to inspect images without needing advanced
+---header parsing per image format in order to learn details like the true image
+---format (not just reading the file extension) and pixel dimensions of the image.
+---
+---```lua
+---img:identify({ format = true, size = true }):on_done(function(err, info)
+---    -- Info is a table containing the information requested by each
+---    -- field marked true.
+---    --
+---    -- In this case,
+---    -- info.format == "PNG"
+---    -- info.size == vim.ui.img.utils.Size { width = 50, height = 30, unit = 'pixel' }
+---    --
+---    -- If the field is unsupported, it can still be rovided using
+---    -- name = "format" syntax of ImageMagick.
+---    --
+---    -- img:identify({ depth = "%z" }) would capture image depth
+---    -- as specified by ImageMagick's escape shorthand for metadata:
+---    -- https://imagemagick.org/script/escape.php
+---end)
+---```
+---
+---Providing an implementation
+---
+---nvim comes with three providers that interface with various
+---graphics protocols supported by |TUI|s and GUIs.
+---
+---1. kitty
+---2. iterm2
+---3. sixel
+---
+---The global provider to use with all placements is specified via the option,
+---*imgprovider*, which is set to *kitty* by default. When the global provider
+---is changed, the old provider is unloaded.
+---
+---```lua
+---vim.o.imgprovider = 'kitty'
+---```
+---
+---The image API also supports 3rd party provider integrations. To create a
+---new provider, the implementer should leverage `vim.ui.img.providers.new()`.
+---
+---To register the provider such that it is accessible globally, the implementer
+---should assign it with a name to the dictionary at `vim.ui.img.providers`.
+---
+---```lua
+---vim.ui.img.providers['neovide'] = vim.ui.img.providers.new({
+---    ---(Optional) Called to initialize the provider.
+---    ---@param ... any arguments for the specific provider upon loading
+---    load = function(...)
+---      -- Implement here
+---    end,
+---
+---    ---(Optional) Called to cleanup the provider.
+---    unload = function()
+---      -- Implement here
+---    end,
+---
+---    ---(Optional) Reports whether this provider is supported in the current environment.
+---    ---@param on_supported? fun(supported:boolean) callback when finished checking
+---    supported = function(on_supported)
+---        -- Implement here
+---    end,
+---
+---    ---Displays an image, returning (through callback) an id tied to the instance.
+---    ---@param img vim.ui.Image image data container to display
+---    ---@param opts vim.ui.img.Opts specification of how to display the image
+---    ---@param on_shown? fun(err:string|nil, id:integer|nil) callback when finished showing
+---    ---@return integer id unique identifier connected to the displayed image (not vim.ui.Image)
+---    show = function(img, opts, on_shown)
+---        -- Implement here
+---    end,
+---
+---    ---Hides one or more displayed images.
+---    ---@param ids integer[] list of displayed image ids to hide
+---    ---@param on_hidden fun(err:string|nil, ids:integer[]|nil) callback when finished hiding
+---    hide = function(ids, on_hidden)
+---        -- Implement here
+---    end,
+---
+---    ---(Optional) Updates an image, returning (through callback) a refreshed id tied to the instance.
+---    ---If not specified, nvim will invoke `hide(id)` followed by `show(img, opts, on_updated)`.
+---    ---@param id integer id of the displayed image to update
+---    ---@param opts vim.ui.img.Opts specification of how to display the image
+---    ---@param on_updated? fun(err:string|nil, id:integer|nil) callback when finished updating
+---    ---@return integer id unique identifier connected to the displayed image (not vim.ui.Image)
+---    update = function(id, opts, on_updated)
+---        -- Implement here
+---    end,
+---})
+---```
+M.img = require('vim.ui.img')
+
 --- Prompts the user to pick from a list of items, allowing arbitrary (potentially asynchronous)
 --- work until `on_choice`.
 ---

@@ -259,6 +259,7 @@ let test_values = {
       \ 'helplang': [['', 'de', 'de,it'], ['xxx']],
       "\ 'highlight': [['', 'e:Error'], ['xxx']],
       "\ 'imactivatekey': [['', 'S-space'], ['xxx']],
+      \ 'imgprovider': [['iterm2', 'kitty', 'sixel'], ['', 'xxx']],
       \ 'isfname': [['', '@', '@,48-52'], ['xxx', '@48']],
       \ 'isident': [['', '@', '@,48-52'], ['xxx', '@48']],
       \ 'isexpand': [['', '.,->', '/,/*,\\,'], [',,', '\\,,']],
