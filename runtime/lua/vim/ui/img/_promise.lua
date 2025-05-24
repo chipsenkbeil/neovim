@@ -1,20 +1,20 @@
----@alias vim.ui.img.utils.promise.Status 'ok'|'fail'|'waiting'
+---@alias vim.ui.img._promise.Status 'ok'|'fail'|'waiting'
 
 ---Utility class to support async and sync handling of success and failure.
----@class vim.ui.img.utils.Promise<T>:{context:(fun(self:vim.ui.img.utils.Promise<T>):(string|nil)),status:(fun(self:vim.ui.img.utils.Promise<T>):vim.ui.img.utils.promise.Status),ok:(fun(self:vim.ui.img.utils.Promise<T>,value:T):vim.ui.img.utils.Promise<T>),fail:(fun(self:vim.ui.img.utils.Promise<T>,err:string|nil):vim.ui.img.utils.Promise<T>),on_done:(fun(self:vim.ui.img.utils.Promise<T>,f:fun(err:string|nil,value:T|nil)):vim.ui.img.utils.Promise<T>),on_ok:(fun(self:vim.ui.img.utils.Promise<T>,f:fun(value:T)):vim.ui.img.utils.Promise<T>),on_fail:(fun(self:vim.ui.img.utils.Promise<T>,f:fun(err:string)):vim.ui.img.utils.Promise<T>),wait:(fun(self:vim.ui.img.utils.Promise<T>,opts?:{timeout?:integer,interval?:integer}):(T|nil,string|nil))}
+---@class vim.ui.img._Promise<T>:{context:(fun(self:vim.ui.img._Promise<T>):(string|nil)),status:(fun(self:vim.ui.img._Promise<T>):vim.ui.img._promise.Status),ok:(fun(self:vim.ui.img._Promise<T>,value:T):vim.ui.img._Promise<T>),fail:(fun(self:vim.ui.img._Promise<T>,err:string|nil):vim.ui.img._Promise<T>),on_done:(fun(self:vim.ui.img._Promise<T>,f:fun(err:string|nil,value:T|nil)):vim.ui.img._Promise<T>),on_ok:(fun(self:vim.ui.img._Promise<T>,f:fun(value:T)):vim.ui.img._Promise<T>),on_fail:(fun(self:vim.ui.img._Promise<T>,f:fun(err:string)):vim.ui.img._Promise<T>),wait:(fun(self:vim.ui.img._Promise<T>,opts?:{timeout?:integer,interval?:integer}):(T|nil,string|nil))}
 ---@field private __allow_nil? boolean
 ---@field private __context? string
 ---@field private __on_done fun(err:string|nil, value:any)[]
 ---@field private __on_fail fun(err:string)[]
 ---@field private __on_ok fun(value:any)[]
----@field private __status vim.ui.img.utils.promise.Status
+---@field private __status vim.ui.img._promise.Status
 ---@field private __value any
 local M = {}
 M.__index = M
 
 ---Creates a promise of some value in the future.
 ---@param opts? {allow_nil?:boolean, context?:string}
----@return vim.ui.img.utils.Promise
+---@return vim.ui.img._Promise
 function M.new(opts)
   opts = opts or {}
 
@@ -38,7 +38,7 @@ function M:context()
 end
 
 ---Returns the status of the promise.
----@return vim.ui.img.utils.promise.Status
+---@return vim.ui.img._promise.Status
 function M:status()
   return self.__status
 end
@@ -46,7 +46,7 @@ end
 ---Completes the promise by marking it as successful.
 ---If the promise is already complete, will throw an error.
 ---@param value any
----@return vim.ui.img.utils.Promise
+---@return vim.ui.img._Promise
 function M:ok(value)
   assert(self.__status == 'waiting', 'promise already complete')
   assert(self.__allow_nil or value ~= nil, 'value cannot be nil')
@@ -78,7 +78,7 @@ end
 ---A nil value for `err` will insert a default error message.
 ---If the promise is already complete, will throw an error.
 ---@param err string|nil
----@return vim.ui.img.utils.Promise
+---@return vim.ui.img._Promise
 function M:fail(err)
   assert(self.__status == 'waiting', 'promise already complete')
   vim.validate('err', err, 'string', true)
@@ -113,7 +113,7 @@ end
 ---
 ---A nil value for `f` will be ignored.
 ---@param f fun(err:string|nil, value:any)|nil
----@return vim.ui.img.utils.Promise
+---@return vim.ui.img._Promise
 function M:on_done(f)
   if type(f) == 'function' then
     if self.__status == 'waiting' then
@@ -136,7 +136,7 @@ end
 ---
 ---A nil value for `f` will be ignored.
 ---@param f fun(value:any)|nil
----@return vim.ui.img.utils.Promise
+---@return vim.ui.img._Promise
 function M:on_ok(f)
   if type(f) == 'function' then
     if self.__status == 'waiting' then
@@ -155,7 +155,7 @@ end
 ---
 ---A nil value for `f` will be ignored.
 ---@param f fun(err:string)|nil
----@return vim.ui.img.utils.Promise
+---@return vim.ui.img._Promise
 function M:on_fail(f)
   if type(f) == 'function' then
     if self.__status == 'waiting' then

@@ -3196,24 +3196,6 @@ vim.o.ic = vim.o.ignorecase
 vim.go.ignorecase = vim.o.ignorecase
 vim.go.ic = vim.go.ignorecase
 
---- Specifies the path to the ImageMagick binary. Depending on the needs
---- of the image providers, the ImageMagick binary may be used to convert
---- images to other formats or perform operations like cropping and
---- resizing of images.
----
---- @type string
-vim.o.imgprg = "magick"
-vim.go.imgprg = vim.o.imgprg
-
---- Specifies the provider to use when displaying and managing images
---- within nvim. A single provider is used across the nvim instance
---- and handles logic to display & hide images in a way that the active
---- user interface can understand.
----
---- @type string
-vim.o.imgprovider = "kitty"
-vim.go.imgprovider = vim.o.imgprovider
-
 --- Specifies whether :lmap or an Input Method (IM) is to be used in
 --- Insert mode.  Valid values:
 --- 	0	:lmap is off and IM is off

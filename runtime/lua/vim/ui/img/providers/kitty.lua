@@ -2,13 +2,13 @@
 ---
 local MAX_DATA_CHUNK = 4096
 
----@class vim.ui.img.providers.Kitty
+---@class vim.ui.img._providers.Kitty
 ---@field private __autocmds integer[]
 ---@field private __has_loaded boolean loaded at least once
 ---@field private __images table<integer, integer> neovim image id -> kitty image id
 ---@field private __is_tmux boolean
 ---@field private __placements table<integer, integer> kitty placement id -> kitty image id
----@field private __writer vim.ui.img.utils.BatchWriter
+---@field private __writer vim.ui.img._Writer
 local M = {
   __autocmds = {},
   __has_loaded = false,
@@ -35,12 +35,12 @@ function M:load(opts)
     self.__is_tmux = true
   end
 
-  local utils = require('vim.ui.img.utils')
-  self.__writer = utils.new_batch_writer({
+  self.__writer = require('vim.ui.img._writer').new({
     use_chan_send = true,
     map = function(s)
       if self.__is_tmux then
-        s = utils.codes.escape_tmux_passthrough(s)
+        local codes = require('vim.ui.img._codes')
+        s = codes.escape_tmux_passthrough(s)
       end
       return s
     end,
@@ -75,69 +75,39 @@ function M:unload()
   self.__writer = nil
 end
 
----@param on_supported fun(supported:boolean)
-function M:supported(on_supported)
-  -- TODO: Kitty recommends sending a DA1 request after the
-  --       query regarding kitty support, which would let us
-  --       determine faster (as soon as we get DA1 response)
-  --       that kitty is unsupported. We cannot do this until
-  --       CSI responses are supported in TermResponse.
-  --
-  --       In fact, this does not work right now as kitty's
-  --       response seems to get partially-consumed by neovim
-  --       and results in arbitrary key presses.
-  local query = '\027_Gi=31,s=10,v=2,t=s;YQ==\027\\'
-  local promise = require('vim.ui.img.utils').query_term(query, {
-    -- Not a guarantee that we're loaded when this is called,
-    -- so we try to make use of our writer if we are, otherwise
-    -- we default to stdout to send our query
-    write = self.__writer and self.__writer.write_fast or nil,
-  }, function(seq)
-    -- Get OK or some error response
-    local pattern = '\027_Gi=%d+;[^\027]*\027\\'
-    if string.find(seq, pattern) then
-      return true
-    end
-  end)
-
-  promise:on_ok(on_supported):on_fail(function()
-    on_supported(false)
-  end)
-end
-
 ---@param img vim.ui.Image
 ---@param opts vim.ui.img.Opts
 ---@param on_shown fun(err:string|nil, id:integer|nil)
 function M:show(img, opts, on_shown)
   on_shown = vim.schedule_wrap(on_shown)
 
-  ---@param png vim.ui.Image
-  local function do_show(png)
-    -- Check if we need to transmit our image or if it is already available
-    -- TODO: This should really query to see if the image is still loaded
-    --       otherwise re-transmit the image. This is especially apparent
-    --       when switching between providers as something happens to clear
-    --       the images (I think) and they don't show up anymore
-    local image_id = self.__images[png.id]
-    if not image_id then
-      -- If remote, we have to use a direct transmit instead of file
-      if self:__is_remote() then
-        image_id = self:__transmit_image_direct(png)
-      else
-        image_id = self:__transmit_image_file(png)
-      end
-      self.__images[png.id] = image_id
-    end
-
-    local placement_id = self:__display_image(image_id, opts)
-    self.__placements[placement_id] = image_id
-
-    -- Since we're writing the image display and ignoring the response,
-    -- we will just assume that no Lua error at this point means success
-    on_shown(nil, placement_id)
+  if not img:is_png() then
+    on_shown('image is not a PNG')
+    return
   end
 
-  img:into_png():on_ok(do_show):on_fail(on_shown)
+  -- Check if we need to transmit our image or if it is already available
+  -- TODO: This should really query to see if the image is still loaded
+  --       otherwise re-transmit the image. This is especially apparent
+  --       when switching between providers as something happens to clear
+  --       the images (I think) and they don't show up anymore
+  local image_id = self.__images[img.id]
+  if not image_id then
+    -- If remote, we have to use a direct transmit instead of file
+    if self:__is_remote() then
+      image_id = self:__transmit_image_direct(img)
+    else
+      image_id = self:__transmit_image_file(img)
+    end
+    self.__images[img.id] = image_id
+  end
+
+  local placement_id = self:__display_image(image_id, opts)
+  self.__placements[placement_id] = image_id
+
+  -- Since we're writing the image display and ignoring the response,
+  -- we will just assume that no Lua error at this point means success
+  on_shown(nil, placement_id)
 end
 
 ---@param ids integer[]
@@ -234,7 +204,7 @@ function M:__transmit_image_file(image)
   control['q'] = 2 -- Suppress all responses
 
   -- Payload for a file transmit is the base64-encoded file path
-  local payload = vim.base64.encode(image.filename)
+  local payload = vim.base64.encode(image.file)
 
   self.__writer.write_fast(self:__make_seq(control, payload))
 
@@ -287,7 +257,7 @@ end
 ---@param opts vim.ui.img.Opts|{pid?:integer}
 ---@return integer placement_id
 function M:__display_image(id, opts)
-  local utils = require('vim.ui.img.utils')
+  local codes = require('vim.ui.img._codes')
 
   -- Create a unique placement id for this new display
   local pid = opts.pid or self:__next_id()
@@ -297,11 +267,11 @@ function M:__display_image(id, opts)
 
   -- Capture old cursor position, hide the cursor, and move to the
   -- position where the image should be displayed
-  local pos = opts:position():to_cells()
+  local pos = opts:position()
   self.__writer.write(
-    utils.codes.CURSOR_SAVE,
-    utils.codes.CURSOR_HIDE,
-    utils.codes.move_cursor({ col = pos.x, row = pos.y })
+    codes.cursor_save,
+    codes.cursor_hide,
+    codes.move_cursor({ col = pos.col, row = pos.row })
   )
 
   -- TODO: Do we use U=1 for inline placements via virtual unicode?
@@ -312,23 +282,17 @@ function M:__display_image(id, opts)
   control['C'] = 1 -- Don't move the cursor after the image
   control['q'] = 2 -- Suppress all responses
 
-  if opts.crop then
-    local crop = opts.crop:to_pixels()
-    control['x'] = crop.x
-    control['y'] = crop.y
-    control['w'] = crop.width
-    control['h'] = crop.height
+  if opts.width then
+    control['c'] = opts.width
   end
 
-  if opts.size then
-    local size = opts.size:to_cells()
-    control['c'] = size.width
-    control['r'] = size.height
+  if opts.height then
+    control['r'] = opts.height
   end
 
   control['z'] = opts.z
 
-  self.__writer.write(self:__make_seq(control), utils.codes.CURSOR_RESTORE, utils.codes.CURSOR_SHOW)
+  self.__writer.write(self:__make_seq(control), codes.cursor_restore, codes.cursor_show)
 
   -- Submit the image display request including cursor movement
   self.__writer.flush()
@@ -401,9 +365,6 @@ return require('vim.ui.img.providers').new({
   end,
   unload = function()
     return M:unload()
-  end,
-  supported = function(on_supported)
-    return M:supported(on_supported)
   end,
   show = function(img, opts, on_shown)
     return M:show(img, opts, on_shown)

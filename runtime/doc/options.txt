@@ -3349,22 +3349,6 @@ A jump table for the options with a short description can be found at |Q_op|.
 	Can be overruled by using "\c" or "\C" in the pattern, see
 	|/ignorecase|.
 
-							*'imgprg'*
-'imgprg'		string	(default "magick")
-			global
-	Specifies the path to the ImageMagick binary. Depending on the needs
-	of the image providers, the ImageMagick binary may be used to convert
-	images to other formats or perform operations like cropping and
-	resizing of images.
-
-							*'imgprovider'*
-'imgprovider'		string	(default "kitty")
-			global
-	Specifies the provider to use when displaying and managing images
-	within nvim. A single provider is used across the nvim instance
-	and handles logic to display & hide images in a way that the active
-	user interface can understand.
-
 						*'iminsert'* *'imi'*
 'iminsert' 'imi'	number	(default 0)
 			local to buffer

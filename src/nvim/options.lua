@@ -4360,36 +4360,6 @@ local options = {
       immutable = true,
     },
     {
-      defaults = 'magick',
-      desc = [=[
-        Specifies the path to the ImageMagick binary. Depending on the needs
-        of the image providers, the ImageMagick binary may be used to convert
-        images to other formats or perform operations like cropping and
-        resizing of images.
-      ]=],
-      full_name = 'imgprg',
-      scope = { 'global' },
-      secure = true,
-      short_desc = N_('path to ImageMagick binary'),
-      type = 'string',
-      varname = 'p_imgprg',
-    },
-    {
-      cb = 'did_set_imgprovider',
-      defaults = 'kitty',
-      desc = [=[
-        Specifies the provider to use when displaying and managing images
-        within nvim. A single provider is used across the nvim instance
-        and handles logic to display & hide images in a way that the active
-        user interface can understand.
-      ]=],
-      full_name = 'imgprovider',
-      scope = { 'global' },
-      short_desc = N_('provider used to display & manage images'),
-      type = 'string',
-      varname = 'p_imgprovider',
-    },
-    {
       abbreviation = 'imi',
       cb = 'did_set_iminsert',
       defaults = macros('B_IMODE_NONE', 'number'),

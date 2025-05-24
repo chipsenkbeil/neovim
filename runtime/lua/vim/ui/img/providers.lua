@@ -5,7 +5,7 @@ local PROVIDERS = {}
 ---@field [string] vim.ui.img.Provider
 local M = {}
 
----@class (exact) vim.ui.img.provider.Opts
+---@class (exact) vim.ui.img._ProviderOpts
 ---@field load? fun(...:any) called to initialize this provider
 ---@field unload? fun() called to cleanup this provider
 ---@field supported? fun(on_supported:fun(supported:boolean))
@@ -14,7 +14,7 @@ local M = {}
 ---@field update? fun(id:integer, opts:vim.ui.img.Opts, on_updated:fun(err:string|nil, id:integer|nil))
 
 ---Creates a new image provider instance.
----@param opts vim.ui.img.provider.Opts
+---@param opts vim.ui.img._ProviderOpts
 ---@return vim.ui.img.Provider
 function M.new(opts)
   ---@class vim.ui.img.Provider
@@ -32,9 +32,9 @@ function M.new(opts)
   ---Displays the image using the provider.
   ---@param img vim.ui.Image
   ---@param show_opts? vim.ui.img.Opts
-  ---@return vim.ui.img.utils.Promise<integer>
+  ---@return vim.ui.img._Promise<integer>
   function provider.show(img, show_opts)
-    local promise = require('vim.ui.img.utils.promise').new({
+    local promise = require('vim.ui.img._promise').new({
       context = 'provider.show',
     })
 
@@ -61,9 +61,9 @@ function M.new(opts)
   ---
   ---If no id provided, will hide all displayed images.
   ---@param ids integer|integer[]
-  ---@return vim.ui.img.utils.Promise<integer[]>
+  ---@return vim.ui.img._Promise<integer[]>
   function provider.hide(ids)
-    local promise = require('vim.ui.img.utils.promise').new({
+    local promise = require('vim.ui.img._promise').new({
       context = 'provider.hide',
     })
 
@@ -99,9 +99,9 @@ function M.new(opts)
   ---Updates the displayed image using the provided options.
   ---@param id integer id of the placement
   ---@param update_opts? vim.ui.img.Opts changes to apply to the displayed image
-  ---@return vim.ui.img.utils.Promise<integer>
+  ---@return vim.ui.img._Promise<integer>
   function provider.update(id, update_opts)
-    local promise = require('vim.ui.img.utils.promise').new({
+    local promise = require('vim.ui.img._promise').new({
       context = 'provider.update',
     })
 
@@ -188,9 +188,9 @@ function M.new(opts)
   end
 
   ---Whether or not the provider is supported in the current environment.
-  ---@return vim.ui.img.utils.Promise<boolean>
+  ---@return vim.ui.img._Promise<boolean>
   function provider.supported()
-    local promise = require('vim.ui.img.utils.promise').new({
+    local promise = require('vim.ui.img._promise').new({
       context = 'provider.supported',
     })
 
@@ -277,59 +277,6 @@ function M.unload(name)
     ok = pcall(provider.unload)
   end
   return ok
-end
-
----Returns a list of names of providers supported in the current environment.
----@return vim.ui.img.utils.Promise<string[]>
-function M.supported()
-  local promise = require('vim.ui.img.utils.promise').new({
-    context = 'providers.supported',
-  })
-
-  -- TODO: Since internal providers are lazy-loaded, is there a way to get a
-  --       list of their names without hard-coding here?
-  ---@type string[]
-  local names = vim.tbl_keys(PROVIDERS)
-  for _, name in ipairs({ 'iterm2', 'kitty', 'sixel' }) do
-    if not PROVIDERS[name] then
-      table.insert(names, name)
-    end
-  end
-
-  local remaining = #names
-  local supported_names = {}
-
-  ---@param name string
-  ---@param supported boolean
-  local function mark_supported(name, supported)
-    if supported then
-      table.insert(supported_names, name)
-    end
-    remaining = remaining - 1
-
-    if remaining == 0 then
-      promise:ok(supported_names)
-    end
-  end
-
-  -- Check each provider available without loading them
-  for _, name in ipairs(names) do
-    local provider = M.get(name)
-    if provider then
-      provider
-        .supported()
-        :on_ok(function(supported)
-          mark_supported(name, supported)
-        end)
-        :on_fail(function()
-          mark_supported(name, false)
-        end)
-    else
-      mark_supported(name, false)
-    end
-  end
-
-  return promise
 end
 
 ---@type vim.ui.img.Providers
