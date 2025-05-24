@@ -18,7 +18,7 @@ local M = {}
 ---@return vim.ui.img.Provider
 function M.new(opts)
   ---@class vim.ui.img.Provider
-  ---@field images table<integer, vim.ui.Image> mapping of placement id -> image
+  ---@field images table<integer, vim.ui.Image> mapping of provider created image id -> image
   ---@field private __loaded boolean
   ---@field private __supported boolean|nil
   local provider = {
@@ -55,7 +55,7 @@ function M.new(opts)
     return promise
   end
 
-  ---Hides one or more placements using the provider.
+  ---Hides one or more images using the provider.
   ---
   ---If no id provided, will hide all displayed images.
   ---@param ids integer|integer[]
@@ -95,7 +95,7 @@ function M.new(opts)
   end
 
   ---Updates the displayed image using the provided options.
-  ---@param id integer id of the placement
+  ---@param id integer id of the image
   ---@param update_opts vim.ui.img.InternalOpts changes to apply to the displayed image
   ---@return vim.ui.img._Promise<integer>
   function provider.update(id, update_opts)
@@ -105,7 +105,7 @@ function M.new(opts)
 
     local img = provider.images[id]
     if not img then
-      promise:fail(string.format('placement %s does not exist', id))
+      promise:fail(string.format('image %s does not exist', id))
       return promise
     end
 
