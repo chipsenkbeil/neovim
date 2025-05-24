@@ -10,7 +10,7 @@ local LAST_IMAGE_ID = 0
 ---@field private __id integer|nil when loaded, id is populated by provider
 ---@field private __provider string
 ---@field private __next {action:(fun():vim.ui.img._Promise<true>), promise:vim.ui.img._Promise<true>}|nil
----@field private __opts vim.ui.img.Opts|nil last opts of image when displayed
+---@field private __opts vim.ui.img.InternalOpts|nil last opts of image when displayed
 ---@field private __redrawing boolean if true, image is actively redrawing itself
 local M = {}
 M.__index = M
@@ -149,12 +149,6 @@ function M:is_redrawing()
   return self.__redrawing
 end
 
----Returns the options associated with the image when visible.
----@return vim.ui.img.Opts|nil
-function M:opts()
-  return self.__opts
-end
-
 ---Check if the image is PNG format, optionally loading the magic number of the image.
 ---Will throw an error if unable to load the data of the file.
 ---Works without ImageMagick.
@@ -285,18 +279,20 @@ end
 ---@param opts? vim.ui.img.Opts
 ---@return vim.ui.img._Promise<true>
 function M:show(opts)
+  local __opts = require('vim.ui.img.opts').new(opts):into_internal_opts()
+
   -- If the image is already visible, call update
   -- instead of show to refresh the image instead of
   -- showing it again without clearing the old one
   if self.__id then
-    return self:__schedule(self.__update, self, opts)
+    return self:__schedule(self.__update, self, __opts)
   else
-    return self:__schedule(self.__show, self, opts)
+    return self:__schedule(self.__show, self, __opts)
   end
 end
 
 ---@private
----@param opts? vim.ui.img.Opts
+---@param opts vim.ui.img.InternalOpts
 ---@return vim.ui.img._Promise<true>
 function M:__show(opts)
   local promise = require('vim.ui.img._promise').new({
@@ -382,11 +378,12 @@ end
 ---@param opts? vim.ui.img.Opts
 ---@return vim.ui.img._Promise<true>
 function M:update(opts)
-  return self:__schedule(self.__update, self, opts)
+  local __opts = require('vim.ui.img.opts').new(opts):into_internal_opts()
+  return self:__schedule(self.__update, self, __opts)
 end
 
 ---@private
----@param opts? vim.ui.img.Opts
+---@param opts vim.ui.img.InternalOpts
 ---@return vim.ui.img._Promise<true>
 function M:__update(opts)
   local promise = require('vim.ui.img._promise').new({
@@ -403,13 +400,14 @@ function M:__update(opts)
   else
     -- Merge existing opts we used to render the image last time
     -- with any changes we want to apply now
-    opts = require('vim.ui.img.opts').new(vim.tbl_extend('keep', opts or {}, self.__opts or {}))
+    local tbl = vim.tbl_extend('keep', opts or {}, self.__opts or {})
+    local __opts = require('vim.ui.img.opts').new(tbl):into_internal_opts()
 
     provider
-      .update(self.__id, opts)
+      .update(self.__id, __opts)
       :on_ok(function(id)
         self.__id = id
-        self.__opts = opts
+        self.__opts = __opts
         promise:ok(true)
       end)
       :on_fail(function(update_err)

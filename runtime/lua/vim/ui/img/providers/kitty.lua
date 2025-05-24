@@ -76,7 +76,7 @@ function M:unload()
 end
 
 ---@param img vim.ui.Image
----@param opts vim.ui.img.Opts
+---@param opts vim.ui.img.InternalOpts
 ---@param on_shown fun(err:string|nil, id:integer|nil)
 function M:show(img, opts, on_shown)
   on_shown = vim.schedule_wrap(on_shown)
@@ -129,7 +129,7 @@ function M:hide(ids, on_hidden)
 end
 
 ---@param pid integer
----@param opts vim.ui.img.Opts
+---@param opts vim.ui.img.InternalOpts
 ---@param on_updated fun(err:string|nil, id:integer|nil)
 function M:update(pid, opts, on_updated)
   local id = assert(self.__placements[pid], string.format('kitty(update): invalid id %s', pid))
@@ -254,7 +254,7 @@ end
 ---@private
 ---Display a transmitted image into the kitty terminal.
 ---@param id integer
----@param opts vim.ui.img.Opts|{pid?:integer}
+---@param opts vim.ui.img.InternalOpts|{pid?:integer}
 ---@return integer placement_id
 function M:__display_image(id, opts)
   local codes = require('vim.ui.img._codes')
@@ -267,11 +267,10 @@ function M:__display_image(id, opts)
 
   -- Capture old cursor position, hide the cursor, and move to the
   -- position where the image should be displayed
-  local pos = opts:position()
   self.__writer.write(
     codes.cursor_save,
     codes.cursor_hide,
-    codes.move_cursor({ col = pos.col, row = pos.row })
+    codes.move_cursor({ col = opts.col, row = opts.row })
   )
 
   -- TODO: Do we use U=1 for inline placements via virtual unicode?

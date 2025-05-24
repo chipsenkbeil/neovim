@@ -9,9 +9,9 @@ local M = {}
 ---@field load? fun(...:any) called to initialize this provider
 ---@field unload? fun() called to cleanup this provider
 ---@field supported? fun(on_supported:fun(supported:boolean))
----@field show fun(img:vim.ui.Image, opts:vim.ui.img.Opts, on_shown:fun(err:string|nil, id:integer|nil))
+---@field show fun(img:vim.ui.Image, opts:vim.ui.img.InternalOpts, on_shown:fun(err:string|nil, id:integer|nil))
 ---@field hide fun(ids:integer[], on_hidden:fun(err:string|nil, ids:integer[]|nil))
----@field update? fun(id:integer, opts:vim.ui.img.Opts, on_updated:fun(err:string|nil, id:integer|nil))
+---@field update? fun(id:integer, opts:vim.ui.img.InternalOpts, on_updated:fun(err:string|nil, id:integer|nil))
 
 ---Creates a new image provider instance.
 ---@param opts vim.ui.img._ProviderOpts
@@ -31,14 +31,12 @@ function M.new(opts)
 
   ---Displays the image using the provider.
   ---@param img vim.ui.Image
-  ---@param show_opts? vim.ui.img.Opts
+  ---@param show_opts vim.ui.img.InternalOpts
   ---@return vim.ui.img._Promise<integer>
   function provider.show(img, show_opts)
     local promise = require('vim.ui.img._promise').new({
       context = 'provider.show',
     })
-
-    show_opts = require('vim.ui.img.opts').new(show_opts)
 
     ---@type boolean, string|nil
     local ok, err = pcall(inner.show, img, show_opts, function(err, id)
@@ -98,14 +96,12 @@ function M.new(opts)
 
   ---Updates the displayed image using the provided options.
   ---@param id integer id of the placement
-  ---@param update_opts? vim.ui.img.Opts changes to apply to the displayed image
+  ---@param update_opts vim.ui.img.InternalOpts changes to apply to the displayed image
   ---@return vim.ui.img._Promise<integer>
   function provider.update(id, update_opts)
     local promise = require('vim.ui.img._promise').new({
       context = 'provider.update',
     })
-
-    update_opts = require('vim.ui.img.opts').new(update_opts)
 
     local img = provider.images[id]
     if not img then

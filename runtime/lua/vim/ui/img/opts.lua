@@ -60,9 +60,31 @@ function M.new(opts)
   return instance
 end
 
+---@class vim.ui.img.InternalOpts
+---@field row integer topmost row position (in character cells) of image location
+---@field col integer leftmost column position (in character cells) of image location
+---@field width? integer width (in character cells) to resize the image
+---@field height? integer height (in character cells) to resize the image
+---@field z? integer z-index of the image with lower values being drawn before higher values
+
+---Normalizes the options by determining the editor row and column position.
+---@return vim.ui.img.InternalOpts
+function M:into_internal_opts()
+  local pos = self:__position()
+
+  return {
+    row = pos.row,
+    col = pos.col,
+    width = self.width,
+    height = self.height,
+    z = self.z,
+  }
+end
+
+---@private
 ---Calculates and returns the position dictated by `relative`, `row`, and `col`.
 ---@return {row:integer, col:integer}
-function M:position()
+function M:__position()
   local row, col = 0, 0
 
   if self.row or self.col or self.relative then
