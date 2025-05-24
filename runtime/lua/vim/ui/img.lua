@@ -10,7 +10,7 @@ local LAST_IMAGE_ID = 0
 ---@field private __id integer|nil when loaded, id is populated by provider
 ---@field private __provider string
 ---@field private __next {action:(fun():vim.ui.img._Promise<true>), promise:vim.ui.img._Promise<true>}|nil
----@field private __opts vim.ui.img.InternalOpts|nil last opts of image when displayed
+---@field private __opts vim.ui.img.Opts|nil last opts of image when displayed
 ---@field private __redrawing boolean if true, image is actively redrawing itself
 local M = {}
 M.__index = M
@@ -279,16 +279,11 @@ end
 ---@param opts? vim.ui.img.Opts
 ---@return vim.ui.img._Promise<true>
 function M:show(opts)
-  local __opts = require('vim.ui.img.opts').new(opts):into_internal_opts()
+  -- Update the opts to reflect what we should be showing next
+  -- such that future updates can work properly in batch
+  self.__opts = require('vim.ui.img.opts').new(opts)
 
-  -- If the image is already visible, call update
-  -- instead of show to refresh the image instead of
-  -- showing it again without clearing the old one
-  if self.__id then
-    return self:__schedule(self.__update, self, __opts)
-  else
-    return self:__schedule(self.__show, self, __opts)
-  end
+  return self:__schedule(self.__show, self, self.__opts:into_internal_opts())
 end
 
 ---@private
@@ -307,7 +302,6 @@ function M:__show(opts)
       .show(self, opts)
       :on_ok(function(id)
         self.__id = id
-        self.__opts = opts
         promise:ok(true)
       end)
       :on_fail(function(show_err)
@@ -333,6 +327,10 @@ end
 ---```
 ---@return vim.ui.img._Promise<true>
 function M:hide()
+  -- Update the opts to reflect that we are showing nothing next
+  -- such that future updates can work properly in batch
+  self.__opts = nil
+
   return self:__schedule(self.__hide, self)
 end
 
@@ -351,7 +349,6 @@ function M:__hide()
       .hide(self.__id)
       :on_ok(function()
         self.__id = nil
-        self.__opts = nil
         promise:ok(true)
       end)
       :on_fail(function(hide_err)
@@ -378,8 +375,15 @@ end
 ---@param opts? vim.ui.img.Opts
 ---@return vim.ui.img._Promise<true>
 function M:update(opts)
-  local __opts = require('vim.ui.img.opts').new(opts):into_internal_opts()
-  return self:__schedule(self.__update, self, __opts)
+  -- Merge existing opts we used to render the image last time
+  -- with any changes we want to apply now
+  local tbl = vim.tbl_extend('keep', opts or {}, self.__opts or {})
+
+  -- Update the opts to reflect what we should be showing next
+  -- such that future updates can work properly in batch
+  self.__opts = require('vim.ui.img.opts').new(tbl)
+
+  return self:__schedule(self.__update, self, self.__opts:into_internal_opts())
 end
 
 ---@private
@@ -398,16 +402,10 @@ function M:__update(opts)
   if not provider then
     promise:fail('unable to retrieve provider')
   else
-    -- Merge existing opts we used to render the image last time
-    -- with any changes we want to apply now
-    local tbl = vim.tbl_extend('keep', opts or {}, self.__opts or {})
-    local __opts = require('vim.ui.img.opts').new(tbl):into_internal_opts()
-
     provider
-      .update(self.__id, __opts)
+      .update(self.__id, opts)
       :on_ok(function(id)
         self.__id = id
-        self.__opts = __opts
         promise:ok(true)
       end)
       :on_fail(function(update_err)
