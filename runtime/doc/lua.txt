@@ -2576,24 +2576,6 @@ vim.uri_to_fname({uri})                                   *vim.uri_to_fname()*
 ==============================================================================
 Lua module: vim.ui                                                    *vim.ui*
 
-vim.ui.img                                                        *vim.ui.img*
-    The on_* methods can be called multiple times and each callback will be
-    invoked when finished.
-
-    You can also still choose to wait in a synchronous fashion using `:wait()`
-    which supports supplying a specific timeout in milliseconds. >lua
-        img:show({ ... })
-           :on_ok(function()
-               -- Use the image once it has been confirmed as shown
-           end)
-           :on_fail(function(err)
-               -- Do something with the error that occurred
-           end)
-           :on_done(function(err)
-               -- When either ok or fail happens
-           end)
-<
-
 vim.ui.input({opts}, {on_confirm})                            *vim.ui.input()*
     Prompts the user for input, allowing arbitrary (potentially asynchronous)
     work until `on_confirm`.
@@ -2688,6 +2670,119 @@ vim.ui.select({items}, {opts}, {on_choice})                  *vim.ui.select()*
                      made a choice. `idx` is the 1-based index of `item`
                      within `items`. `nil` if the user aborted the dialog.
 
+==============================================================================
+Lua module: vim.ui._img                                           *vim.ui._img*
+
+WARNING: This is an experimental interface intended explore image rendering
+within neovim and is subject to change.
+
+vim.ui._img.load({opts})                                 *vim.ui._img.load()*
+    Loads an image synchronously by filename or from data.
+
+    Examples: >lua
+        -- Loading by filename
+        local id = vim.ui._img.load("path/to/img.png")
+
+        -- Loading by data
+        local id = vim.ui._img.load({ data = "\137PNG\r\n\26\n" })
+<
+
+    Parameters: ~
+      • {opts}  (`string|table`)
+                • (`string`): path to the `PNG` to load.
+                • (`table`): Table specifying how to load the image.
+                           Accepted keys are:
+                           • {data}? (`string`) data of a loaded `PNG` image
+                           • {filename}? (`string`) path to the `PNG` to load
+
+    Return: ~
+        (`integer`) id of the loaded image, if successful
+
+vim.ui._img.place({id}, {opts})                         *vim.ui._img.place()*
+    Places a loaded image within neovim, visually displaying it.
+
+    Examples: >lua
+        -- Place an image with all default values for the image
+        local placement_id = vim.ui._img.place(123)
+
+        -- Place an image at the 5th row and 3rd column (absolute position)
+        local placement_id = vim.ui._img.place(123, { row = 5, col = 3 })
+<
+
+    Parameters: ~
+      • {id}    (`integer`) id of the loaded image, or id of active placement
+      • {opts}  (`table`) Table specifying additional placement options.
+                Accepted keys are:
+                • {row}? (`integer`) Starting row where image will appear
+                • {col}? (`integer`) Starting column where image will appear
+                • {width}? (`integer`) Width (in cells) to resize the image
+                • {height}? (`integer`) Height (in cells) to resize the image
+                • {z}? (`integer`) Z-index of the placement relative to other
+                  placements with a higher number being placed over lower
+                  numbers.
+
+    Return: ~
+        (`integer`) id of the placement, if successful
+
+vim.ui._img.hide({id})                                  *vim.ui._img.hide()*
+    Places a loaded image within neovim, visually displaying it.
+
+    Examples: >lua
+        -- Hide a loaded image and all active placements
+        vim.ui._img.hide(123)
+
+        -- Hide a specific placement
+        vim.ui._img.hide(456)
+<
+
+    Parameters: ~
+      • {id}    (`integer`) id of the image or placement to hide
+
+    Return: ~
+        (`integer`) id of the placement, if successful
+
+vim.ui._img.get({id})                                  *vim.ui._img.get()*
+    Retrieve the options of a loaded image or active placement.
+
+    Examples: >lua
+        -- If id is an image, will load the image options
+        local opts, kind = vim.ui._img.get(123)
+        -- opts = { filename = "path/to/img.png" }
+        -- kind = "img"
+
+        -- If id is a placement, will load the placement options
+        local opts, kind = vim.ui._img.get(456)
+        -- opts = { row = 5, col = 3 }
+        -- kind = "placement"
+<
+
+    Parameters: ~
+      • {id}    (`integer`) id of the image or placement whose opts to get
+
+    Return: ~
+        (`table|nil`) opts of the image or placement, or `nil` if invalid
+
+vim.ui._img.images()                                  *vim.ui._img.images()*
+    Return an iterator over the loaded images, mapped by id.
+
+    Examples: >lua
+        local images = vim.ui._img.images():totable()
+        -- images = { { 123, { filename = "path/to/img.png" } } }
+<
+
+    Return: ~
+        (`vim.iter`) iterator over image ids and opts
+
+vim.ui._img.placements()                        *vim.ui._img.placements()*
+    Return an iterator over the active placements, mapped by id.
+
+    Examples: >lua
+        local placements = vim.ui._img.placements():totable()
+        -- placements = { { 456, { row = 5, col = 3 } } }
+<
+
+    Return: ~
+        (`vim.iter`) iterator over placement ids and opts
 
 ==============================================================================
 Lua module: vim._extui                                            *vim._extui*
