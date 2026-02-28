@@ -90,10 +90,23 @@ describe('ui/img', function()
       eq('kitty', provider)
     end)
 
-    it('works with builtin alias', function()
+    it('works with kitty builtin alias', function()
       setup_img_api()
       local image_id = exec_lua(function()
         vim.ui.img.provider = 'kitty'
+        return vim.ui.img.load(img_file)
+      end)
+
+      local info = exec_lua(function()
+        return vim.ui.img.get(image_id)
+      end)
+      eq(img_file, info.filename)
+    end)
+
+    it('works with sixel builtin alias', function()
+      setup_img_api()
+      local image_id = exec_lua(function()
+        vim.ui.img.provider = 'sixel'
         return vim.ui.img.load(img_file)
       end)
 
@@ -327,6 +340,216 @@ describe('ui/img', function()
 
       -- Sixth, we show the cursor again
       eq(escape_ansi('\027[?25h'), escape_ansi(string.sub(esc_codes, 1, 6)), 'cursor show')
+    end)
+  end)
+
+  describe('png decoder', function()
+    it('can decode the test PNG to RGBA pixels', function()
+      local result = exec_lua(function()
+        local png = require('vim.ui.img._png')
+        local data = PNG_IMG_BYTES
+        local decoded = png.decode(data)
+        return {
+          width = decoded.width,
+          height = decoded.height,
+          pixel_count = #decoded.pixels / 4,
+          -- Return first few pixels as byte arrays for verification
+          px0 = { string.byte(decoded.pixels, 1, 4) },
+          px1 = { string.byte(decoded.pixels, 5, 8) },
+        }
+      end)
+
+      eq(4, result.width)
+      eq(4, result.height)
+      eq(16, result.pixel_count)
+      -- Verify pixels have valid RGBA values (4 bytes each)
+      eq(4, #result.px0)
+      eq(4, #result.px1)
+    end)
+
+    it('rejects non-PNG data', function()
+      local ok = exec_lua(function()
+        local png = require('vim.ui.img._png')
+        local ok, _ = pcall(png.decode, 'not a png file')
+        return ok
+      end)
+
+      eq(false, ok)
+    end)
+  end)
+
+  describe('sixel protocol', function()
+    before_each(function()
+      setup_img_api()
+    end)
+
+    ---@param esc string
+    ---@return {raster:string?, colors:table<integer, string>, data:string, prefix:string, suffix:string}
+    local function parse_sixel_seq(esc)
+      -- Find DCS introducer for sixel
+      local dcs_start = esc:find('\027Pq')
+      assert(dcs_start, 'no DCS sixel sequence found: ' .. escape_ansi(esc))
+
+      local prefix = esc:sub(1, dcs_start - 1)
+
+      -- Find ST (string terminator)
+      local st_pos = esc:find('\027\\', dcs_start)
+      assert(st_pos, 'no ST terminator found')
+
+      local suffix = esc:sub(st_pos + 2)
+
+      -- Extract sixel content between DCS q and ST
+      local inner = esc:sub(dcs_start + 3, st_pos - 1) -- after ESC P q
+
+      -- Parse raster attributes
+      local raster = inner:match('^"([^#]*)')
+
+      -- Parse color definitions
+      local colors = {}
+      for color_def in inner:gmatch('#(%d+;2;%d+;%d+;%d+)') do
+        local idx = tonumber(color_def:match('^(%d+)'))
+        if idx then
+          colors[idx] = color_def
+        end
+      end
+
+      return {
+        raster = raster,
+        colors = colors,
+        data = inner,
+        prefix = prefix,
+        suffix = suffix,
+      }
+    end
+
+    it('can display an image in neovim', function()
+      local esc_codes = exec_lua(function()
+        _G.data = {}
+        vim.cmd.mode = function() end -- no-op in tests
+
+        vim.ui.img.provider = 'sixel'
+        local id = vim.ui.img.load(img_file)
+        vim.ui.img.place(id, {
+          col = 1,
+          row = 2,
+        })
+
+        return table.concat(_G.data)
+      end)
+
+      local parsed = parse_sixel_seq(esc_codes)
+
+      -- Verify raster attributes contain image dimensions
+      assert(parsed.raster, 'raster attributes should be present')
+      assert(parsed.raster:match('%d+;%d+'), 'raster should contain dimensions')
+
+      -- Verify at least one color is defined
+      local color_count = 0
+      for _ in pairs(parsed.colors) do
+        color_count = color_count + 1
+      end
+      assert(color_count > 0, 'should have at least one color definition')
+
+      -- Verify sixel data contains pixel data characters (63-126 range)
+      assert(parsed.data:match('[?@A-~]'), 'should contain sixel data characters')
+
+      -- Verify cursor management wrapping (with SYNC)
+      eq(
+        escape_ansi('\027[?2026h\0277\027[?25l\027[2;1H'),
+        escape_ansi(parsed.prefix),
+        'sync+cursor save+hide+move'
+      )
+      eq(
+        escape_ansi('\0278\027[?25h\027[?2026l'),
+        escape_ansi(parsed.suffix),
+        'cursor restore+show+sync'
+      )
+    end)
+
+    it('can load an image with sixel provider', function()
+      local image_id = exec_lua(function()
+        vim.ui.img.provider = 'sixel'
+        return vim.ui.img.load(img_file)
+      end)
+
+      local info = exec_lua(function()
+        return vim.ui.img.get(image_id)
+      end)
+
+      eq(img_file, info.filename)
+    end)
+
+    it('can hide an image in neovim', function()
+      local esc_codes = exec_lua(function()
+        vim.cmd.mode = function() end -- no-op in tests
+
+        vim.ui.img.provider = 'sixel'
+        local id = vim.ui.img.load(img_file)
+        vim.ui.img.place(id, { col = 1, row = 2 })
+
+        _G.data = {} -- Reset to capture only hide output
+
+        vim.ui.img.hide(id)
+
+        return table.concat(_G.data)
+      end)
+
+      -- After hiding all images, re-render should produce no sixel DCS sequences
+      assert(
+        not esc_codes:find('\027Pq'),
+        'should not contain sixel data after hiding all images'
+      )
+    end)
+
+    it('can hide a placement in neovim', function()
+      local esc_codes = exec_lua(function()
+        vim.cmd.mode = function() end -- no-op in tests
+
+        vim.ui.img.provider = 'sixel'
+        local id = vim.ui.img.load(img_file)
+        local placement_id = vim.ui.img.place(id, { col = 1, row = 2 })
+
+        _G.data = {} -- Reset to capture only hide output
+
+        vim.ui.img.hide(placement_id)
+
+        return table.concat(_G.data)
+      end)
+
+      -- After hiding the only placement, re-render should produce no sixel DCS sequences
+      assert(
+        not esc_codes:find('\027Pq'),
+        'should not contain sixel data after hiding all placements'
+      )
+    end)
+
+    it('can update a placement in neovim', function()
+      local esc_codes = exec_lua(function()
+        vim.cmd.mode = function() end -- no-op in tests
+
+        vim.ui.img.provider = 'sixel'
+        local id = vim.ui.img.load(img_file)
+        local placement_id = vim.ui.img.place(id, { col = 1, row = 2 })
+
+        _G.data = {} -- Reset to capture only update output
+
+        vim.ui.img.place(placement_id, {
+          col = 5,
+          row = 6,
+        })
+
+        return table.concat(_G.data)
+      end)
+
+      -- Update triggers a re-render which should contain the new position
+      local parsed = parse_sixel_seq(esc_codes)
+      assert(parsed.data, 'should contain sixel data after update')
+
+      -- Verify cursor movement to the new position (row 6, col 5)
+      assert(
+        esc_codes:find('\027%[6;5H'),
+        'should move cursor to updated position'
+      )
     end)
   end)
 end)

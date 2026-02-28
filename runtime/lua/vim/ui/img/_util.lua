@@ -1,8 +1,16 @@
 ---Utility functions tied to neovim's image api.
 ---@class vim.ui.img._util
 ---@field private _tmux_initialized boolean
+---@field private _cell_width_px integer
+---@field private _cell_height_px integer
+---@field private _cell_size_queried boolean
+---@field private _on_cell_size_change? fun(w: integer, h: integer)
 local M = {
   _tmux_initialized = false,
+  _cell_width_px = 8,
+  _cell_height_px = 16,
+  _cell_size_queried = false,
+  _on_cell_size_change = nil,
 }
 
 ---Check if image data is PNG format.
@@ -66,6 +74,89 @@ function M.load_image_data(file)
   end
 
   return data
+end
+
+---Return the cached cell pixel dimensions.
+---@return integer width, integer height
+function M.cell_pixel_size()
+  return M._cell_width_px, M._cell_height_px
+end
+
+---Query cell pixel dimensions synchronously via TIOCGWINSZ ioctl.
+---Updates cached values immediately. Falls back to 8x16 defaults on failure.
+---@private
+M._query_cell_size_ioctl = (function()
+  local ffi = require('ffi')
+
+  pcall(
+    ffi.cdef,
+    [[
+    struct nvim_img_winsize {
+      unsigned short ws_row;
+      unsigned short ws_col;
+      unsigned short ws_xpixel;
+      unsigned short ws_ypixel;
+    };
+    int open(const char *path, int flags);
+    int close(int fd);
+    int ioctl(int fd, unsigned long request, ...);
+  ]]
+  )
+
+  -- TIOCGWINSZ: Linux uses 0x5413, BSD-derived systems (macOS, FreeBSD, etc.) use 0x40087468
+  local TIOCGWINSZ = (vim.uv.os_uname().sysname == 'Linux') and 0x5413 or 0x40087468
+  local STDERR_FILENO = 2
+
+  return function()
+    -- Use stderr (fd 2) directly rather than opening /dev/tty, because
+    -- Neovim's server process may not have a controlling terminal (setsid)
+    -- but stderr is still connected to the terminal pty.
+    ---@type {ws_xpixel:integer, ws_ypixel:integer, ws_col:integer, ws_row:integer}
+    local ws = ffi.new('struct nvim_img_winsize')
+    local rc = ffi.C.ioctl(STDERR_FILENO, TIOCGWINSZ, ws) ---@type integer
+
+    if rc < 0 then
+      return
+    end
+
+    if ws.ws_xpixel == 0 or ws.ws_ypixel == 0 or ws.ws_col == 0 or ws.ws_row == 0 then
+      return
+    end
+
+    local new_w = math.floor(ws.ws_xpixel / ws.ws_col)
+    local new_h = math.floor(ws.ws_ypixel / ws.ws_row)
+
+    if new_w <= 0 or new_h <= 0 then
+      return
+    end
+
+    local changed = new_w ~= M._cell_width_px or new_h ~= M._cell_height_px
+    M._cell_width_px = new_w
+    M._cell_height_px = new_h
+
+    if changed and M._on_cell_size_change then
+      M._on_cell_size_change(new_w, new_h)
+    end
+  end
+end)()
+
+---Query the terminal for cell pixel dimensions (synchronous via ioctl).
+---Values are available immediately after this call.
+function M.query_cell_size()
+  if M._cell_size_queried then
+    return
+  end
+  M._cell_size_queried = true
+
+  M._query_cell_size_ioctl()
+
+  -- Re-query on terminal resize (cell size may change with font/window changes).
+  -- Registered once since query_cell_size() guards with _cell_size_queried.
+  vim.api.nvim_create_autocmd('VimResized', {
+    callback = function()
+      M._query_cell_size_ioctl()
+    end,
+  })
 end
 
 M.generate_id = (function()
