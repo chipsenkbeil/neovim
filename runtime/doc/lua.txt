@@ -5032,7 +5032,7 @@ EXPERIMENTAL: This API may change in the future. Its semantics are not yet
 finalized.
 
 This provides a functional API for loading and displaying images in Nvim.
-Currently supports PNG images via the Kitty graphics protocol.
+Currently supports PNG images via the Kitty and Sixel graphics protocols.
 
 The image provider can be changed by setting `vim.ui.img.provider` to a
 builtin name (e.g. `kitty`) or a module path string implementing
@@ -5079,7 +5079,8 @@ Examples: >lua
     An image provider implements the terminal-specific protocol for loading,
     placing, and hiding images.
 
-    Nvim includes a built-in provider for the Kitty graphics protocol. To use
+    Nvim includes built-in providers for the Kitty and Sixel graphics
+    protocols. To use
     a custom provider, set `vim.ui.img.provider` to a module path: >lua
         vim.ui.img.provider = 'my.custom.provider'
 <
