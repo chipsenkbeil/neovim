@@ -5,7 +5,7 @@ local M = {}
 ---EXPERIMENTAL: This API may change in the future. Its semantics are not yet finalized.
 ---
 ---This provides a functional API for loading and displaying images in Nvim.
----Currently supports PNG images via the Kitty and Sixel graphics protocols.
+---Currently supports PNG images via the Kitty, Sixel, and iTerm2 graphics protocols.
 ---
 ---The image provider can be changed by setting `vim.ui.img.provider` to a
 ---builtin name (e.g. `kitty`) or a module path string implementing
@@ -33,7 +33,8 @@ local M = {}
 --- An image provider implements the terminal-specific protocol for loading,
 --- placing, and hiding images.
 ---
---- Nvim includes built-in providers for the Kitty and Sixel graphics protocols.
+--- Nvim includes built-in providers for the Kitty, Sixel, and iTerm2 graphics
+--- protocols.
 --- To use a custom provider, set `vim.ui.img.provider` to a module path:
 ---
 --- ```lua
@@ -44,10 +45,10 @@ local M = {}
 ---@field place fun(id: integer, opts?: vim.ui.img.PlacementOpts): integer
 ---@field hide fun(id: integer, placement_id?: integer)
 
----The name of the image provider. Builtin: `kitty`, `sixel`. Can also be set
----to a module path (e.g. `my.custom.provider`) that returns a table
----implementing |vim.ui.img.Provider|.
----@type 'kitty'|'sixel'|string
+---The name of the image provider. Builtin: `kitty`, `sixel`, `iterm2`. Can
+---also be set to a module path (e.g. `my.custom.provider`) that returns a
+---table implementing |vim.ui.img.Provider|.
+---@type 'kitty'|'sixel'|'iterm2'|string
 M.provider = 'kitty'
 
 ---@return vim.ui.img.Provider
@@ -55,6 +56,7 @@ local function get_provider()
   local builtin = {
     kitty = 'vim.ui.img._kitty',
     sixel = 'vim.ui.img._sixel',
+    iterm2 = 'vim.ui.img._iterm2',
   }
 
   local mod_path = builtin[M.provider] or M.provider
