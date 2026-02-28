@@ -116,6 +116,19 @@ describe('ui/img', function()
       eq(img_file, info.filename)
     end)
 
+    it('works with iterm2 builtin alias', function()
+      setup_img_api()
+      local image_id = exec_lua(function()
+        vim.ui.img.provider = 'iterm2'
+        return vim.ui.img.load(img_file)
+      end)
+
+      local info = exec_lua(function()
+        return vim.ui.img.get(image_id)
+      end)
+      eq(img_file, info.filename)
+    end)
+
     it('errors on invalid provider', function()
       local ok, err = exec_lua(function()
         vim.ui.img.provider = 'nonexistent'
@@ -544,6 +557,179 @@ describe('ui/img', function()
       -- Update triggers a re-render which should contain the new position
       local parsed = parse_sixel_seq(esc_codes)
       assert(parsed.data, 'should contain sixel data after update')
+
+      -- Verify cursor movement to the new position (row 6, col 5)
+      assert(
+        esc_codes:find('\027%[6;5H'),
+        'should move cursor to updated position'
+      )
+    end)
+  end)
+
+  describe('iterm2 protocol', function()
+    before_each(function()
+      setup_img_api()
+    end)
+
+    ---@param esc string
+    ---@return {args:table<string, string>, data:string, prefix:string, suffix:string}
+    local function parse_iterm2_seq(esc)
+      -- Find the OSC 1337 sequence
+      local osc_start = esc:find('\027%]1337;File=')
+      assert(osc_start, 'no OSC 1337 File= sequence found: ' .. escape_ansi(esc))
+
+      local prefix = esc:sub(1, osc_start - 1)
+
+      -- Find the BEL terminator
+      local bel_pos = esc:find('\a', osc_start)
+      assert(bel_pos, 'no BEL terminator found')
+
+      local suffix = esc:sub(bel_pos + 1)
+
+      -- Extract args and data between File= and :data BEL
+      local inner = esc:sub(osc_start + #'\027]1337;File=', bel_pos - 1)
+      local colon_pos = inner:find(':')
+      assert(colon_pos, 'no colon separator found in OSC 1337 sequence')
+
+      local args_str = inner:sub(1, colon_pos - 1)
+      local data = inner:sub(colon_pos + 1)
+
+      -- Parse args
+      local args = {}
+      for kv in args_str:gmatch('[^;]+') do
+        local k, v = kv:match('([^=]+)=(.*)')
+        if k then
+          args[k] = v
+        end
+      end
+
+      return { args = args, data = data, prefix = prefix, suffix = suffix }
+    end
+
+    it('can display an image in neovim', function()
+      local esc_codes = exec_lua(function()
+        _G.data = {}
+        vim.cmd.mode = function() end -- no-op in tests
+
+        vim.ui.img.provider = 'iterm2'
+        local id = vim.ui.img.load(img_file)
+        vim.ui.img.place(id, {
+          col = 1,
+          row = 2,
+          width = 3,
+          height = 4,
+        })
+
+        return table.concat(_G.data)
+      end)
+
+      local parsed = parse_iterm2_seq(esc_codes)
+
+      -- Verify args
+      eq('1', parsed.args.inline)
+      eq('0', parsed.args.preserveAspectRatio)
+      eq('3', parsed.args.width)
+      eq('4', parsed.args.height)
+      assert(parsed.args.size, 'size arg should be present')
+
+      -- Verify base64 data is present and non-empty
+      assert(#parsed.data > 0, 'base64 data should be non-empty')
+
+      -- Verify cursor management wrapping (with SYNC)
+      eq(
+        escape_ansi('\027[?2026h\0277\027[?25l\027[2;1H'),
+        escape_ansi(parsed.prefix),
+        'sync+cursor save+hide+move'
+      )
+      eq(
+        escape_ansi('\0278\027[?25h\027[?2026l'),
+        escape_ansi(parsed.suffix),
+        'cursor restore+show+sync'
+      )
+    end)
+
+    it('can load an image with iterm2 provider', function()
+      local image_id = exec_lua(function()
+        vim.ui.img.provider = 'iterm2'
+        return vim.ui.img.load(img_file)
+      end)
+
+      local info = exec_lua(function()
+        return vim.ui.img.get(image_id)
+      end)
+
+      eq(img_file, info.filename)
+    end)
+
+    it('can hide an image in neovim', function()
+      local esc_codes = exec_lua(function()
+        vim.cmd.mode = function() end -- no-op in tests
+
+        vim.ui.img.provider = 'iterm2'
+        local id = vim.ui.img.load(img_file)
+        vim.ui.img.place(id, { col = 1, row = 2 })
+
+        _G.data = {} -- Reset to capture only hide output
+
+        vim.ui.img.hide(id)
+
+        return table.concat(_G.data)
+      end)
+
+      -- After hiding all images, re-render should produce no OSC 1337 sequences
+      assert(
+        not esc_codes:find('\027%]1337;File='),
+        'should not contain iterm2 image data after hiding all images'
+      )
+    end)
+
+    it('can hide a placement in neovim', function()
+      local esc_codes = exec_lua(function()
+        vim.cmd.mode = function() end -- no-op in tests
+
+        vim.ui.img.provider = 'iterm2'
+        local id = vim.ui.img.load(img_file)
+        local placement_id = vim.ui.img.place(id, { col = 1, row = 2 })
+
+        _G.data = {} -- Reset to capture only hide output
+
+        vim.ui.img.hide(placement_id)
+
+        return table.concat(_G.data)
+      end)
+
+      -- After hiding the only placement, re-render should produce no OSC 1337 sequences
+      assert(
+        not esc_codes:find('\027%]1337;File='),
+        'should not contain iterm2 image data after hiding all placements'
+      )
+    end)
+
+    it('can update a placement in neovim', function()
+      local esc_codes = exec_lua(function()
+        vim.cmd.mode = function() end -- no-op in tests
+
+        vim.ui.img.provider = 'iterm2'
+        local id = vim.ui.img.load(img_file)
+        local placement_id = vim.ui.img.place(id, { col = 1, row = 2 })
+
+        _G.data = {} -- Reset to capture only update output
+
+        vim.ui.img.place(placement_id, {
+          col = 5,
+          row = 6,
+          width = 7,
+          height = 8,
+        })
+
+        return table.concat(_G.data)
+      end)
+
+      -- Update triggers a re-render which should contain iterm2 data
+      assert(
+        esc_codes:find('\027%]1337;File='),
+        'should contain iterm2 image data after update'
+      )
 
       -- Verify cursor movement to the new position (row 6, col 5)
       assert(
