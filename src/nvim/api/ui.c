@@ -960,6 +960,15 @@ static Array translate_firstarg(RemoteUI *ui, Array args, Arena *arena)
 void remote_ui_event(RemoteUI *ui, char *name, Array args)
 {
   Arena arena = ARENA_EMPTY;
+
+  // Image events are only sent to UIs that declared ext_images support.
+  if (!ui->ui_ext[kUIImages]) {
+    if (strequal(name, "img_show") || strequal(name, "img_update")
+        || strequal(name, "img_delete")) {
+      return;
+    }
+  }
+
   if (!ui->ui_ext[kUILinegrid]) {
     // the representation of highlights in cmdline changed, translate back
     // never consumes args
@@ -1036,4 +1045,38 @@ void nvim_ui_send(uint64_t channel_id, String content, Error *err)
   FUNC_API_SINCE(14)
 {
   ui_call_ui_send(content);
+}
+
+/// Emits an "img_show" UI event to all UIs with the ext_images capability.
+///
+/// @param id    Caller-assigned image identifier
+/// @param data  Raw PNG image bytes
+/// @param opts  Display options: row, col, width, height, zindex (all optional)
+/// @param[out] err Error details, if any
+void nvim_ui_img_show(Integer id, String data, Dict opts, Error *err)
+  FUNC_API_SINCE(14)
+{
+  ui_call_img_show(id, data, opts);
+}
+
+/// Emits an "img_update" UI event to all UIs with the ext_images capability.
+/// Repositions or resizes an existing image without retransmitting its bytes.
+///
+/// @param id    Image identifier previously passed to nvim_ui_img_show
+/// @param opts  Updated options: row, col, width, height, zindex (all optional)
+/// @param[out] err Error details, if any
+void nvim_ui_img_update(Integer id, Dict opts, Error *err)
+  FUNC_API_SINCE(14)
+{
+  ui_call_img_update(id, opts);
+}
+
+/// Emits an "img_delete" UI event to all UIs with the ext_images capability.
+///
+/// @param id    Image identifier previously passed to nvim_ui_img_show
+/// @param[out] err Error details, if any
+void nvim_ui_img_delete(Integer id, Error *err)
+  FUNC_API_SINCE(14)
+{
+  ui_call_img_delete(id);
 }

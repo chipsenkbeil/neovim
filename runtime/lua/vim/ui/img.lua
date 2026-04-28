@@ -5,7 +5,8 @@ local M = {}
 ---EXPERIMENTAL: This API may change in the future. Its semantics are not yet finalized.
 ---
 ---This provides a functional API for displaying images in Nvim.
----Currently supports PNG images via the Kitty graphics protocol.
+---Currently supports PNG images via the Kitty graphics protocol (TUI) or
+---UI protocol events (GUI clients with ext_images support).
 ---
 ---To override the image backend, replace `vim.ui.img` with your own
 ---implementation providing set/get/del.
@@ -38,8 +39,27 @@ local M = {}
 ---@field zindex? integer stacking order (higher = on top)
 
 --- Maps user-facing ID to internal tracking info.
----@type table<integer, { img_id: integer, opts: vim.ui.img.Opts }>
+---@type table<integer, { img_id?: integer, opts: vim.ui.img.Opts }>
 local state = {}
+
+local img_counter = 0
+
+---@return integer
+local function next_img_id()
+  img_counter = img_counter + 1
+  return img_counter
+end
+
+---Returns true if any attached UI declared ext_images support.
+---@return boolean
+local function has_ext_images_ui()
+  for _, ui in ipairs(vim.api.nvim_list_uis()) do
+    if ui.ext_images then
+      return true
+    end
+  end
+  return false
+end
 
 ---Display an image or update an existing one.
 ---
@@ -57,21 +77,36 @@ function M.set(data_or_id, opts)
   vim.validate('data_or_id', data_or_id, { 'string', 'number' })
   vim.validate('opts', opts, 'table')
 
+  if has_ext_images_ui() then
+    -- GUI path: emit structured UI protocol events.
+    if type(data_or_id) == 'string' then
+      local id = next_img_id()
+      vim.api.nvim_ui_img_show(id, data_or_id, opts)
+      state[id] = { opts = vim.deepcopy(opts) }
+      return id
+    end
+
+    local id = data_or_id
+    local entry = state[id]
+    assert(entry, 'invalid image id: ' .. tostring(id))
+    local merged = vim.tbl_extend('force', entry.opts, opts)
+    vim.api.nvim_ui_img_update(id, merged)
+    entry.opts = merged
+    return id
+  end
+
+  -- Terminal path: emit Kitty graphics protocol termcodes.
   local kitty = require('vim.ui.img._kitty')
 
-  -- If given a string, this should be the bytes of a new image to display
   if type(data_or_id) == 'string' then
     local img_id, placement_id = kitty.set(data_or_id, opts)
     state[placement_id] = { img_id = img_id, opts = vim.deepcopy(opts) }
     return placement_id
   end
 
-  -- Otherwise, we update an existing image that is actively displayed
   local id = data_or_id
   local entry = state[id]
   assert(entry, 'invalid image id: ' .. tostring(id))
-
-  -- We always want to have a full set of options when passing to kitty
   local merged = vim.tbl_extend('force', entry.opts, opts)
   kitty.update(entry.img_id, id, merged)
   entry.opts = merged
@@ -85,7 +120,6 @@ end
 function M.get(id)
   vim.validate('id', id, 'number')
 
-  -- Grab a copy of the most recent opts used for the image
   local entry = state[id]
   if not entry then
     return nil
@@ -101,14 +135,18 @@ end
 function M.del(id)
   vim.validate('id', id, 'number')
 
-  -- Skip performing the deletion if we don't have an active image with the id
   local entry = state[id]
   if not entry then
     return false
   end
 
-  local kitty = require('vim.ui.img._kitty')
-  kitty.delete(entry.img_id)
+  if has_ext_images_ui() then
+    vim.api.nvim_ui_img_delete(id)
+  else
+    local kitty = require('vim.ui.img._kitty')
+    kitty.delete(entry.img_id)
+  end
+
   state[id] = nil
   return true
 end

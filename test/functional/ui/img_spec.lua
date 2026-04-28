@@ -271,3 +271,114 @@ describe('vim.ui.img', function()
     eq(false, result.not_found)
   end)
 end)
+
+describe('vim.ui.img (ext_images)', function()
+  ---Mock nvim_list_uis to report a GUI with ext_images and capture img events.
+  local function setup_ext_images_ui()
+    exec_lua(function()
+      _G.ui_events = {}
+
+      -- Pretend a GUI with ext_images is attached.
+      vim.api.nvim_list_uis = function()
+        return { { ext_images = true, width = 80, height = 24 } }
+      end
+
+      -- Capture calls to the img UI event API functions.
+      vim.api.nvim_ui_img_show = function(id, data, opts)
+        table.insert(_G.ui_events, { event = 'img_show', id = id, data = data, opts = opts })
+      end
+      vim.api.nvim_ui_img_update = function(id, opts)
+        table.insert(_G.ui_events, { event = 'img_update', id = id, opts = opts })
+      end
+      vim.api.nvim_ui_img_delete = function(id)
+        table.insert(_G.ui_events, { event = 'img_delete', id = id })
+      end
+    end)
+  end
+
+  before_each(function()
+    clear()
+    setup_ext_images_ui()
+  end)
+
+  it('emits img_show for new images', function()
+    local result = exec_lua(function()
+      local id = vim.ui.img.set(PNG_IMG_BYTES, {
+        row = 3,
+        col = 5,
+        width = 20,
+        height = 10,
+        zindex = 42,
+      })
+      return { id = id, events = _G.ui_events }
+    end)
+
+    eq(1, #result.events)
+    local ev = result.events[1]
+    eq('img_show', ev.event)
+    eq(result.id, ev.id)
+    eq(PNG_IMG_BYTES, ev.data)
+    eq(3, ev.opts.row)
+    eq(5, ev.opts.col)
+    eq(20, ev.opts.width)
+    eq(10, ev.opts.height)
+    eq(42, ev.opts.zindex)
+  end)
+
+  it('emits img_update when repositioning an existing image', function()
+    local result = exec_lua(function()
+      local id = vim.ui.img.set(PNG_IMG_BYTES, { row = 1, col = 1, width = 10, height = 5 })
+      _G.ui_events = {}
+      vim.ui.img.set(id, { row = 4, col = 8 })
+      return { id = id, events = _G.ui_events }
+    end)
+
+    eq(1, #result.events)
+    local ev = result.events[1]
+    eq('img_update', ev.event)
+    eq(result.id, ev.id)
+    -- opts are merged: row/col updated, width/height preserved from first set
+    eq(4, ev.opts.row)
+    eq(8, ev.opts.col)
+    eq(10, ev.opts.width)
+    eq(5, ev.opts.height)
+  end)
+
+  it('emits img_delete when deleting an image', function()
+    local result = exec_lua(function()
+      local id = vim.ui.img.set(PNG_IMG_BYTES, { row = 1, col = 1 })
+      _G.ui_events = {}
+      local found = vim.ui.img.del(id)
+      local not_found = vim.ui.img.del(id)
+      return { id = id, found = found, not_found = not_found, events = _G.ui_events }
+    end)
+
+    eq(1, #result.events)
+    eq('img_delete', result.events[1].event)
+    eq(result.id, result.events[1].id)
+    eq(true, result.found)
+    eq(false, result.not_found)
+  end)
+
+  it('get returns opts on the GUI path', function()
+    local result = exec_lua(function()
+      local id = vim.ui.img.set(PNG_IMG_BYTES, { row = 2, col = 3, width = 8, height = 4 })
+      return vim.ui.img.get(id)
+    end)
+
+    eq({ row = 2, col = 3, width = 8, height = 4 }, result)
+  end)
+
+  it('does not emit kitty termcodes when ext_images UI is attached', function()
+    local result = exec_lua(function()
+      _G.ui_send_calls = {}
+      vim.api.nvim_ui_send = function(d)
+        table.insert(_G.ui_send_calls, d)
+      end
+      vim.ui.img.set(PNG_IMG_BYTES, { row = 1, col = 1 })
+      return _G.ui_send_calls
+    end)
+
+    eq(0, #result)
+  end)
+end)

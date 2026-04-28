@@ -188,3 +188,13 @@ void msg_history_show(Array entries, Boolean prev_cmd)
 //   argument, to indicate that the UI shouldn't wait for server exit.
 void error_exit(Integer status)
   FUNC_API_SINCE(12) FUNC_API_CLIENT_IMPL;
+
+// Image display events. Only sent to UIs with the ext_images capability.
+// opts keys: row (Integer), col (Integer), width (Integer), height (Integer),
+//            zindex (Integer). All optional and extensible over time.
+void img_show(Integer id, String data, Dict opts)
+  FUNC_API_SINCE(14) FUNC_API_REMOTE_ONLY;
+void img_update(Integer id, Dict opts)
+  FUNC_API_SINCE(14) FUNC_API_REMOTE_ONLY;
+void img_delete(Integer id)
+  FUNC_API_SINCE(14) FUNC_API_REMOTE_ONLY;
