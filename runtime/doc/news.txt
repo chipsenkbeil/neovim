@@ -201,7 +201,10 @@ STARTUP
 
 TERMINAL
 
-• todo
+• |:terminal| now displays images emitted via the kitty graphics protocol by
+  programs running inside it (e.g. `chafa`, kitty's `icat`, `viu`). Images are
+  anchored to the terminal buffer and follow scroll, scrollback, and buffer
+  lifecycle. See |terminal-kitty-graphics|.
 
 TREESITTER
 

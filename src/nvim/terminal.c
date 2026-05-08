@@ -351,10 +351,6 @@ static int on_osc(int command, VTermStringFragment frag, void *user)
 {
   Terminal *term = user;
 
-  if (frag.str == NULL || frag.len == 0) {
-    return 0;
-  }
-
   if (command != 8 && !has_event(EVENT_TERMREQUEST)) {
     return 1;
   }
@@ -363,7 +359,9 @@ static int on_osc(int command, VTermStringFragment frag, void *user)
     kv_size(term->termrequest_buffer) = 0;
     kv_printf(term->termrequest_buffer, "\x1b]%d;", command);
   }
-  kv_concat_len(term->termrequest_buffer, frag.str, frag.len);
+  if (frag.str != NULL && frag.len > 0) {
+    kv_concat_len(term->termrequest_buffer, frag.str, frag.len);
+  }
   if (frag.final) {
     term->termrequest_terminator = frag.terminator;
     if (has_event(EVENT_TERMREQUEST)) {
@@ -387,7 +385,7 @@ static int on_dcs(const char *command, size_t commandlen, VTermStringFragment fr
 {
   Terminal *term = user;
 
-  if (command == NULL || frag.str == NULL) {
+  if (command == NULL) {
     return 0;
   }
   if (!has_event(EVENT_TERMREQUEST)) {
@@ -398,7 +396,9 @@ static int on_dcs(const char *command, size_t commandlen, VTermStringFragment fr
     kv_size(term->termrequest_buffer) = 0;
     kv_printf(term->termrequest_buffer, "\x1bP%.*s", (int)commandlen, command);
   }
-  kv_concat_len(term->termrequest_buffer, frag.str, frag.len);
+  if (frag.str != NULL && frag.len > 0) {
+    kv_concat_len(term->termrequest_buffer, frag.str, frag.len);
+  }
   if (frag.final) {
     term->termrequest_terminator = frag.terminator;
     schedule_termrequest(term);
@@ -409,9 +409,6 @@ static int on_dcs(const char *command, size_t commandlen, VTermStringFragment fr
 static int on_apc(VTermStringFragment frag, void *user)
 {
   Terminal *term = user;
-  if (frag.str == NULL || frag.len == 0) {
-    return 0;
-  }
 
   if (!has_event(EVENT_TERMREQUEST)) {
     return 1;
@@ -421,7 +418,14 @@ static int on_apc(VTermStringFragment frag, void *user)
     kv_size(term->termrequest_buffer) = 0;
     kv_printf(term->termrequest_buffer, "\x1b_");
   }
-  kv_concat_len(term->termrequest_buffer, frag.str, frag.len);
+  // Don't early-return on empty payload: vterm may split a fragmented APC
+  // such that the body and the trailing `final` flag arrive in separate
+  // fragments. Returning early when frag.len==0 caused the `final` flag to
+  // be missed, dropping the APC silently. Only the kv_concat_len needs to
+  // be guarded.
+  if (frag.str != NULL && frag.len > 0) {
+    kv_concat_len(term->termrequest_buffer, frag.str, frag.len);
+  }
   if (frag.final) {
     term->termrequest_terminator = frag.terminator;
     schedule_termrequest(term);
@@ -429,9 +433,47 @@ static int on_apc(VTermStringFragment frag, void *user)
   return 1;
 }
 
+static int on_csi(const char *leader, const long args[], int argcount, const char *intermed,
+                  char command, void *user)
+{
+  Terminal *term = user;
+
+  if (!has_event(EVENT_TERMREQUEST)) {
+    return 0;
+  }
+
+  // Reconstruct the CSI sequence (\e[<leader><args><intermed><command>) into
+  // term->termrequest_buffer and route it through TermRequest. Routes
+  // unrecognized CSI commands (vterm-handled ones never reach this fallback)
+  // so Lua handlers can synthesize replies — e.g. CSI 14 t / CSI 16 t pixel
+  // size queries that programs like yazi require to decide whether to
+  // render images via the kitty graphics protocol.
+  kv_size(term->termrequest_buffer) = 0;
+  kv_printf(term->termrequest_buffer, "\x1b[");
+  if (leader != NULL) {
+    kv_printf(term->termrequest_buffer, "%s", leader);
+  }
+  for (int i = 0; i < argcount; i++) {
+    long a = CSI_ARG(args[i]);
+    if (i > 0) {
+      kv_push(term->termrequest_buffer, CSI_ARG_HAS_MORE(args[i - 1]) ? ':' : ';');
+    }
+    if (a != CSI_ARG_MISSING) {
+      kv_printf(term->termrequest_buffer, "%ld", a);
+    }
+  }
+  if (intermed != NULL) {
+    kv_printf(term->termrequest_buffer, "%s", intermed);
+  }
+  kv_push(term->termrequest_buffer, command);
+  term->termrequest_terminator = VTERM_TERMINATOR_ST;
+  schedule_termrequest(term);
+  return 1;
+}
+
 static VTermStateFallbacks vterm_fallbacks = {
   .control = NULL,
-  .csi = NULL,
+  .csi = on_csi,
   .osc = on_osc,
   .dcs = on_dcs,
   .apc = on_apc,

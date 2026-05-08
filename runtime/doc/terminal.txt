@@ -245,6 +245,38 @@ from a |TermRequest| handler: >lua
     })
 <
 ==============================================================================
+Kitty graphics in :terminal                          *terminal-kitty-graphics*
+
+Programs running inside |:terminal| can display images using the kitty
+graphics protocol (https://sw.kovidgoyal.net/kitty/graphics-protocol/).
+Their APC sequences are captured, parsed, and rendered via |vim.ui.img|
+with the image anchored to the terminal buffer at the line where the
+program was about to draw. Scrolling, scrollback, multiple windows
+showing the same terminal, and |:bdelete| all behave correctly.
+
+PNG (`f=100`), RGB (`f=24`), and RGBA (`f=32`) transmissions are all
+supported. Raw pixel transmissions are converted to PNG before being
+handed to |vim.ui.img|.
+
+Known limitation:
+- Programs that query the terminal's pixel size with `CSI 14t` or
+  `CSI 16t` (e.g. kitty's `icat` kitten) currently get no reply, so
+  they decline to render. Pass explicit cell dimensions to bypass
+  (e.g. `chafa --size=30x15 --format=kitty`).
+
+Plugin authors handling |TermRequest| should filter out kitty graphics
+sequences (which start with "\e_G" and may be very large): >lua
+
+    vim.api.nvim_create_autocmd('TermRequest', {
+      callback = function(ev)
+        if ev.data.sequence:sub(1, 3) == '\27_G' then
+          return -- handled by the runtime
+        end
+        -- ...handle other sequences
+      end,
+    })
+<
+==============================================================================
 Status Variables                                             *terminal-status*
 
 Terminal buffers maintain some buffer-local variables and options. The values
