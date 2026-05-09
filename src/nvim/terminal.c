@@ -433,47 +433,9 @@ static int on_apc(VTermStringFragment frag, void *user)
   return 1;
 }
 
-static int on_csi(const char *leader, const long args[], int argcount, const char *intermed,
-                  char command, void *user)
-{
-  Terminal *term = user;
-
-  if (!has_event(EVENT_TERMREQUEST)) {
-    return 0;
-  }
-
-  // Reconstruct the CSI sequence (\e[<leader><args><intermed><command>) into
-  // term->termrequest_buffer and route it through TermRequest. Routes
-  // unrecognized CSI commands (vterm-handled ones never reach this fallback)
-  // so Lua handlers can synthesize replies — e.g. CSI 14 t / CSI 16 t pixel
-  // size queries that programs like yazi require to decide whether to
-  // render images via the kitty graphics protocol.
-  kv_size(term->termrequest_buffer) = 0;
-  kv_printf(term->termrequest_buffer, "\x1b[");
-  if (leader != NULL) {
-    kv_printf(term->termrequest_buffer, "%s", leader);
-  }
-  for (int i = 0; i < argcount; i++) {
-    long a = CSI_ARG(args[i]);
-    if (i > 0) {
-      kv_push(term->termrequest_buffer, CSI_ARG_HAS_MORE(args[i - 1]) ? ':' : ';');
-    }
-    if (a != CSI_ARG_MISSING) {
-      kv_printf(term->termrequest_buffer, "%ld", a);
-    }
-  }
-  if (intermed != NULL) {
-    kv_printf(term->termrequest_buffer, "%s", intermed);
-  }
-  kv_push(term->termrequest_buffer, command);
-  term->termrequest_terminator = VTERM_TERMINATOR_ST;
-  schedule_termrequest(term);
-  return 1;
-}
-
 static VTermStateFallbacks vterm_fallbacks = {
   .control = NULL,
-  .csi = on_csi,
+  .csi = NULL,
   .osc = on_osc,
   .dcs = on_dcs,
   .apc = on_apc,
